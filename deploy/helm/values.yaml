@@ -1,0 +1,36 @@
+replicasCount: 1
+maxUnavailableCount: 0
+
+image:
+  repository: gcr.io/videocoin-network/mlistener
+  tag: latest
+  pullPolicy: Always
+
+config: {}
+
+service:
+  type: ClusterIP
+  externalRpcPort: 5003
+  internalRpcPort: 5003
+
+autoscaler:
+  minCount: 1
+  maxCount: 10
+  targets:
+    targetCPUUtilizationPercentage: 70
+
+# resources:
+#   limits:
+#     cpu: 200m
+#     memory: 1000Mi
+#   requests:
+#     cpu: 200m
+#     memory: 1000Mi
+
+secrets:
+  dbUri: ""
+  mqUri: ""
+  redisUri: ""
+  contractAddr: ""
+  nodeHttpAddr: ""
+  sentryDsn: ""
