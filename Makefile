@@ -1,6 +1,8 @@
 GOOS?=linux
 GOARCH?=amd64
 
+GCP_PROJECT=videocoin-network
+
 NAME=mlistener
 VERSION=$$(git describe --abbrev=0)-$$(git rev-parse --short HEAD)
 
@@ -35,4 +37,4 @@ docker-push:
 dbm-status:
 	goose -dir migrations -table ${NAME} postgres "${DBM_MSQLURI}" status
 
-release: build docker-build docker-push
+release: docker-build docker-push

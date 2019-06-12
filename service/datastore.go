@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	pipelinesv1 "github.com/VideoCoin/cloud-api/pipelines/v1"
-	workorderv1 "github.com/VideoCoin/cloud-api/workorder/v1"
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/mysql"
 )
@@ -32,24 +31,14 @@ func NewDatastore(uri string) (*Datastore, error) {
 }
 
 func (ds *Datastore) GetPipelineByStreamId(streamId uint64) (*pipelinesv1.Pipeline, error) {
-	workOrder := &workorderv1.WorkOrder{}
-	err := ds.Db.Where("stream_id = ?", streamId).First(workOrder).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, ErrPipelineNotFound
-		}
-
-		return nil, fmt.Errorf("failed to get work order by stream id %d: %s", streamId, err.Error())
-	}
-
 	pipeline := &pipelinesv1.Pipeline{}
-	err = ds.Db.Where("id = ?", workOrder.PipelineId).First(pipeline).Error
+	err := ds.Db.Where("stream_id = ?", streamId).First(pipeline).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, ErrPipelineNotFound
 		}
 
-		return nil, fmt.Errorf("failed to get pipeline by id %s: %s", workOrder.PipelineId, err.Error())
+		return nil, fmt.Errorf("failed to get pipeline by stream id %d: %s", streamId, err.Error())
 	}
 
 	return pipeline, nil

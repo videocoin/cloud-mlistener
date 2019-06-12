@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"log"
 	"math/big"
 	"strings"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/VideoCoin/go-videocoin/accounts/abi"
 	"github.com/VideoCoin/go-videocoin/accounts/abi/bind"
 	"github.com/VideoCoin/go-videocoin/common"
+	"github.com/VideoCoin/go-videocoin/core/types"
 	"github.com/VideoCoin/go-videocoin/ethclient"
 	"github.com/go-redis/redis"
 	"github.com/sirupsen/logrus"
@@ -78,11 +78,12 @@ func NewListener(c *ListenerConfig) (*listener, error) {
 		return nil, err
 	}
 
-	rc := redis.NewClient(&redis.Options{
-		Addr:     c.RedisAddr,
-		Password: "",
-		DB:       0,
-	})
+	opts, err := redis.ParseURL(c.RedisAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	rc := redis.NewClient(opts)
 
 	contractAddr := common.HexToAddress(c.ContractAddr)
 	abiName := string(streamManager.ManagerABI)
@@ -119,6 +120,9 @@ func NewListener(c *ListenerConfig) (*listener, error) {
 }
 
 func (l *listener) Start() {
+	var lastSeenLog types.Log
+	starting := true
+
 	for {
 		query := vc.FilterQuery{
 			Addresses: []common.Address{
@@ -129,153 +133,211 @@ func (l *listener) Start() {
 
 		logs, err := l.ec.FilterLogs(context.Background(), query)
 		if err != nil {
-			log.Fatal(err)
+			l.logger.Error(err)
+		}
+
+		if len(logs) == 0 {
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		if starting == true {
+			lastSeenLog = logs[0]
 		}
 
 		for _, vLog := range logs {
-			if vLog.BlockNumber == l.blockNumber.Uint64() {
+			l.logger.Infof("last seen log with block number %d and index %d, tx %d ",
+				lastSeenLog.BlockNumber, lastSeenLog.Index, lastSeenLog.TxIndex)
+
+			l.logger.Infof("parsing log with block number %d and index %d, tx %d ",
+				vLog.BlockNumber, vLog.Index, vLog.TxIndex)
+
+			if starting == false && vLog.BlockNumber == lastSeenLog.BlockNumber && vLog.Index <= lastSeenLog.Index {
+				l.logger.Info("skipping ...")
+
 				time.Sleep(5 * time.Second)
 				continue
 			}
 
+			starting = false
+
+			lastSeenLog = vLog
+
+			l.logger.Infof("updated last seen log with block number %d and index %d, tx %d ",
+				lastSeenLog.BlockNumber, lastSeenLog.Index, lastSeenLog.TxIndex)
+
 			l.blockNumber.SetUint64(vLog.BlockNumber)
 
-			name := l.signatures[vLog.Topics[0].Hex()]
-			f := interfaceByName(name)
-			if f == nil {
-				continue
-			}
-
-			out := f()
-			if err := l.contract.UnpackLog(out, name, vLog); err != nil {
-				l.logger.Error(err)
-				continue
-			}
-
-			switch v := out.(type) {
-			case *streamManager.ManagerStreamRequested:
-				l.logger.Infof("%s, %d, %s", "StreamRequested", v.StreamId.Uint64(), v.Client.Hex())
-
-				pipelineId, userId, err := l.setCache(v.StreamId.Uint64())
-				if err == nil {
-					l.sendNotificationEvent(
-						map[string]string{
-							"name":        "StreamRequested",
-							"pipeline_id": pipelineId,
-							"user_id":     userId,
-							"event":       fmt.Sprintf("stream id %s has been requested", v.StreamId.String()),
-						},
-					)
-				} else {
-					l.logger.Warn("StreamRequested set cache failed")
+			for _, topic := range vLog.Topics {
+				l.logger.Infof("parsing topic %s", topic.Hex())
+				name := l.signatures[topic.Hex()]
+				f := interfaceByName(name)
+				if f == nil {
+					continue
 				}
 
-			case *streamManager.ManagerStreamApproved:
-				l.logger.Infof("%s, %d", "StreamApproved", v.StreamId.Uint64())
-
-				pipelineId, userId, err := l.getCache(v.StreamId.Uint64())
-				if err == nil {
-					l.sendNotificationEvent(
-						map[string]string{
-							"name":        "StreamApproved",
-							"pipeline_id": pipelineId,
-							"user_id":     userId,
-							"event":       fmt.Sprintf("stream id %s has been approved", v.StreamId.String()),
-						},
-					)
-				} else {
-					l.logger.Warn("StreamApproved get cache failed")
+				out := f()
+				if err := l.contract.UnpackLog(out, name, vLog); err != nil {
+					l.logger.Error(err)
+					continue
 				}
 
-			case *streamManager.ManagerStreamCreated:
-				l.logger.Infof("%s, %d, %s", "StreamCreated", v.StreamId.Uint64(), v.StreamAddress)
+				switch v := out.(type) {
+				case *streamManager.ManagerStreamRequested:
+					pipelineId, userId, err := l.getSetCache(v.StreamId.Uint64())
+					if err != nil {
+						l.logger.Warnf("StreamRequested set cache failed: %s", err.Error())
+						break
+					}
 
-				pipelineId, userId, err := l.getCache(v.StreamId.Uint64())
-				if err == nil {
-					l.sendNotificationEvent(
+					l.logger.Infof("%s, %d, %s, %s, %s", "StreamRequested", v.StreamId.Uint64(), v.Client.Hex(), pipelineId, userId)
+
+					err = l.sendNotificationEvent(
 						map[string]string{
-							"name":        "StreamCreated",
+							"event":       "pipeline/stream",
 							"pipeline_id": pipelineId,
 							"user_id":     userId,
-							"event":       fmt.Sprintf("stream id %s has been created with stream address %s", v.StreamId.String(), v.StreamAddress.Hex()),
+							"message":     fmt.Sprintf("stream id %s has been requested", v.StreamId.String()),
 						},
 					)
-				} else {
-					l.logger.Warn("StreamCreated get cache failed")
-				}
+					if err != nil {
+						l.logger.Warnf("sendNotificationEvent failed: %s", err.Error())
+					}
 
-			case *streamManager.ManagerStreamEnded:
-				l.logger.Infof("%s, %d", "StreamEnded", v.StreamId.Uint64())
+				case *streamManager.ManagerStreamApproved:
+					pipelineId, userId, err := l.getSetCache(v.StreamId.Uint64())
+					if err != nil {
+						l.logger.Warnf("StreamApproved get cache failed %s", err.Error())
+						break
+					}
 
-				pipelineId, userId, err := l.getCache(v.StreamId.Uint64())
-				if err == nil {
-					l.sendNotificationEvent(
+					l.logger.Infof("%s, %d, %s, %s", "StreamApproved", v.StreamId.Uint64(), pipelineId, userId)
+
+					err = l.sendNotificationEvent(
 						map[string]string{
-							"name":        "StreamEnded",
+							"event":       "pipeline/stream",
 							"pipeline_id": pipelineId,
 							"user_id":     userId,
-							"event":       fmt.Sprintf("stream id %s has been ended", v.StreamId.String()),
+							"message":     fmt.Sprintf("stream id %s has been approved", v.StreamId.String()),
 						},
 					)
-				} else {
-					l.logger.Warn("StreamEnded get cache failed")
-				}
-			case *streamManager.ManagerInputChunkAdded:
-				l.logger.Infof("%s, %d", "InputChunkAdded", v.StreamId.Uint64())
+					if err != nil {
+						l.logger.Warnf("sendNotificationEvent failed: %s", err.Error())
+					}
 
-				pipelineId, userId, err := l.getCache(v.StreamId.Uint64())
-				if err == nil {
-					l.sendNotificationEvent(
+				case *streamManager.ManagerStreamCreated:
+					pipelineId, userId, err := l.getSetCache(v.StreamId.Uint64())
+					if err != nil {
+						l.logger.Warnf("StreamCreated get cache failed %s", err.Error())
+						break
+					}
+
+					l.logger.Infof("%s, %d, %s, %s, %s",
+						"StreamCreated", v.StreamId.Uint64(), v.StreamAddress.Hex(), pipelineId, userId)
+
+					err = l.sendNotificationEvent(
 						map[string]string{
-							"name":        "InputChunkAdded",
+							"event":       "pipeline/stream",
 							"pipeline_id": pipelineId,
 							"user_id":     userId,
-							"event":       fmt.Sprintf("input chunk has been added on stream id %s", v.StreamId.String()),
+							"message":     fmt.Sprintf("stream id %s has been created with stream address %s", v.StreamId.String(), v.StreamAddress.Hex()),
 						},
 					)
-				} else {
-					l.logger.Warn("InputChunkAdded get cache failed")
-				}
+					if err != nil {
+						l.logger.Warnf("sendNotificationEvent failed: %s", err.Error())
+					}
 
-			case *streamManager.ManagerRefundAllowed:
-				l.logger.Infof("%s, %d", "RefundAllowed", v.StreamId.Uint64())
+				case *streamManager.ManagerStreamEnded:
+					pipelineId, userId, err := l.getSetCache(v.StreamId.Uint64())
+					if err != nil {
+						l.logger.Warnf("StreamEnded get cache failed %s", err.Error())
+						break
+					}
 
-				pipelineId, userId, err := l.getCache(v.StreamId.Uint64())
-				if err == nil {
-					l.sendNotificationEvent(
+					l.logger.Infof("%s, %d, %s, %s", "StreamEnded", v.StreamId.Uint64(), pipelineId, userId)
+
+					err = l.sendNotificationEvent(
 						map[string]string{
-							"name":        "RefundAllowed",
+							"event":       "pipeline/stream",
 							"pipeline_id": pipelineId,
 							"user_id":     userId,
-							"event":       fmt.Sprintf("refund has been allowed on stream id %s", v.StreamId.String()),
+							"message":     fmt.Sprintf("stream id %s has been ended", v.StreamId.String()),
 						},
 					)
-				} else {
-					l.logger.Warn("RefundAllowed get cache failed")
-				}
+					if err != nil {
+						l.logger.Warnf("sendNotificationEvent failed: %s", err.Error())
+					}
 
-			case *streamManager.ManagerRefundRevoked:
-				l.logger.Infof("%s, %d", "RefundRevoked", v.StreamId.Uint64())
+				case *streamManager.ManagerInputChunkAdded:
+					pipelineId, userId, err := l.getSetCache(v.StreamId.Uint64())
+					if err != nil {
+						l.logger.Warnf("InputChunkAdded get cache failed %s", err.Error())
+						break
+					}
 
-				pipelineId, userId, err := l.getCache(v.StreamId.Uint64())
-				if err == nil {
-					l.sendNotificationEvent(
+					l.logger.Infof("%s, %d, %s, %s", "InputChunkAdded", v.StreamId.Uint64(), pipelineId, userId)
+
+					err = l.sendNotificationEvent(
 						map[string]string{
-							"name":        "RefundRevoked",
+							"event":       "pipeline/stream",
 							"pipeline_id": pipelineId,
 							"user_id":     userId,
-							"event":       fmt.Sprintf("refund has been revoked on stream id %s", v.StreamId.String()),
+							"message":     fmt.Sprintf("input chunk has been added on stream id %s", v.StreamId.String()),
 						},
 					)
-				} else {
-					l.logger.Warn("RefundRevoked get cache failed")
+					if err != nil {
+						l.logger.Warnf("sendNotificationEvent failed: %s", err.Error())
+					}
+
+				case *streamManager.ManagerRefundAllowed:
+					pipelineId, userId, err := l.getSetCache(v.StreamId.Uint64())
+					if err != nil {
+						l.logger.Warnf("RefundAllowed get cache failed %s", err.Error())
+						break
+					}
+
+					l.logger.Infof("%s, %d, %s, %s", "RefundAllowed", v.StreamId.Uint64(), pipelineId, userId)
+
+					err = l.sendNotificationEvent(
+						map[string]string{
+							"event":       "pipeline/stream",
+							"pipeline_id": pipelineId,
+							"user_id":     userId,
+							"message":     fmt.Sprintf("refund has been allowed on stream id %s", v.StreamId.String()),
+						},
+					)
+					if err != nil {
+						l.logger.Warnf("sendNotificationEvent failed: %s", err.Error())
+					}
+
+				case *streamManager.ManagerRefundRevoked:
+					pipelineId, userId, err := l.getSetCache(v.StreamId.Uint64())
+					if err != nil {
+						l.logger.Warnf("RefundRevoked get cache failed %s", err.Error())
+						break
+					}
+
+					l.logger.Infof("%s, %d, %s, %s", "RefundRevoked", v.StreamId.Uint64(), pipelineId, userId)
+
+					err = l.sendNotificationEvent(
+						map[string]string{
+							"event":       "pipeline/stream",
+							"pipeline_id": pipelineId,
+							"user_id":     userId,
+							"message":     fmt.Sprintf("refund has been revoked on stream id %s", v.StreamId.String()),
+						},
+					)
+					if err != nil {
+						l.logger.Warnf("sendNotificationEvent failed: %s", err.Error())
+					}
+
+				case *streamManager.ManagerValidatorAdded:
+					l.logger.Infof("%s", "ValidatorAdded")
+				case *streamManager.ManagerValidatorRemoved:
+					l.logger.Infof("%s", "ValidatorRemoved")
+				case *streamManager.ManagerOwnershipTransferred:
+					l.logger.Infof("%s", "OwnershipTransferred")
 				}
-			case *streamManager.ManagerValidatorAdded:
-				l.logger.Infof("%s", "ValidatorAdded")
-			case *streamManager.ManagerValidatorRemoved:
-				l.logger.Infof("%s", "ValidatorRemoved")
-			case *streamManager.ManagerOwnershipTransferred:
-				l.logger.Infof("%s", "OwnershipTransferred")
 			}
 		}
 	}
@@ -304,7 +366,7 @@ func (l *listener) setCache(streamID uint64) (string, string, error) {
 		return "", "", err
 	}
 
-	err = l.rc.SetNX(fmt.Sprintf("u-%d", streamID), p.Id, 24*time.Hour).Err()
+	err = l.rc.SetNX(fmt.Sprintf("u-%d", streamID), p.UserId, 24*time.Hour).Err()
 	if err != nil {
 		return "", "", err
 	}
@@ -329,4 +391,16 @@ func (l *listener) getCache(streamID uint64) (string, string, error) {
 	}
 
 	return pipelineId, userId, nil
+}
+
+func (l *listener) getSetCache(streamID uint64) (string, string, error) {
+	pId, uId, err := l.getCache(streamID)
+	if err != nil {
+		pId, uId, err = l.setCache(streamID)
+		if err != nil {
+			return "", "", err
+		}
+	}
+
+	return pId, uId, nil
 }

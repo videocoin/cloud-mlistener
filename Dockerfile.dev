@@ -2,6 +2,6 @@ FROM golang:1.10
 
 MAINTAINER VideoCoin
 
-WORKDIR /go/src/github.com/VideoCoin/cloud-listen-manager
+WORKDIR /go/src/github.com/VideoCoin/cloud-mlistener
 
 CMD go run cmd/main.go

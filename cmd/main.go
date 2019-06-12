@@ -5,7 +5,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/VideoCoin/cloud-listen-manager/service"
+	"github.com/VideoCoin/cloud-mlistener/service"
 	"github.com/VideoCoin/cloud-pkg/logger"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/sirupsen/logrus"

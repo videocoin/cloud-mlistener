@@ -1,4 +1,4 @@
-module github.com/VideoCoin/cloud-listen-manager
+module github.com/VideoCoin/cloud-mlistener
 
 go 1.12
 

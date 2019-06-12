@@ -53,10 +53,12 @@ func NewService(cfg *Config) (*Service, error) {
 
 func (s *Service) Start() error {
 	go s.listener.Start()
+	go s.eb.Start()
 	return nil
 }
 
 func (s *Service) Stop() error {
 	s.listener.Stop()
+	s.eb.Stop()
 	return nil
 }
