@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	pipelinesv1 "github.com/VideoCoin/cloud-api/pipelines/v1"
+	pipelinesv1 "github.com/videocoin/cloud-api/pipelines/v1"
 	"github.com/jinzhu/gorm"
 	_ "github.com/jinzhu/gorm/dialects/mysql"
 )

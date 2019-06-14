@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package cloud.api.workorder.v1;
+
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+import "github.com/videocoin/cloud-api/profiles/v1/profiles.proto";
+
+option go_package = "v1";
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+option (gogoproto.sizer_all) = true;
+option (gogoproto.goproto_registration) = true;
+option (gogoproto.messagename_all) = true;
+
+enum WorkOrderStatus {
+    option (gogoproto.goproto_enum_prefix) = false;
+    option (gogoproto.enum_customname) = "WorkOrderStatus";
+
+    none = 0 [ (gogoproto.enumvalue_customname) = "WorkOrderStatusNone" ];
+    new = 1 [ (gogoproto.enumvalue_customname) = "WorkOrderStatusNew" ];
+    pending = 2 [ (gogoproto.enumvalue_customname) = "WorkOrderStatusPending" ];
+    processing = 3 [ (gogoproto.enumvalue_customname) = "WorkOrderStatusProcessing" ];
+    ready = 4 [ (gogoproto.enumvalue_customname) = "WorkOrderStatusReady" ];
+    complete = 5 [ (gogoproto.enumvalue_customname) = "WorkOrderStatusComplete" ];
+    canceld = 6 [ (gogoproto.enumvalue_customname) = "WorkOrderStatusCanceled" ];
+    failed = 7 [ (gogoproto.enumvalue_customname) = "WorkOrderStatusFailed" ];
+}
+
+enum IngestStatus {
+    option (gogoproto.goproto_enum_prefix) = false;
+    option (gogoproto.enum_customname) = "IngestStatus";
+
+    ingest_status_none = 0 [ (gogoproto.enumvalue_customname) = "IngestStatusNone" ];
+    ingest_status_active = 1 [ (gogoproto.enumvalue_customname) = "IngestStatusActive" ];
+    ingest_status_inactive = 2 [ (gogoproto.enumvalue_customname) = "IngestStatusInactive" ];
+    ingest_status_error = 3 [ (gogoproto.enumvalue_customname) = "IngestStatusError" ];
+}
+
+message WorkOrder {
+    uint32 id = 1;
+    string pipeline_id = 2;
+    string transcoder_id = 3;
+    cloud.api.profiles.v1.ProfileId profile_id = 4;
+    string client_address = 5;
+    string stream_address = 6;
+    int64 stream_id = 7;
+    string transcode_input_url = 8;
+    string ingest_input_url = 9;
+    string transcode_output_url =10;
+    WorkOrderStatus status = 11;
+    bytes chunks = 12 [ (gogoproto.moretags) = "gorm:\"chunks;type:json\"sql:\"type:json\"" ];
+    int64 created_at = 13;
+    int64 updated_at = 14;
+    bytes worker = 15 [ (gogoproto.moretags) = "gorm:\"worker;type:binary(32);DEFAULT:NULL\"sql:\"type:binary(32);DEFAULT:null\"" ];
+    bool refunded = 20;
+    IngestStatus ingest_status = 21;
+    string stream_hash = 22;
+}
+
+message JobProfile {
+	uint32 id = 1;
+	string pipeline_id = 2;
+    cloud.api.profiles.v1.ProfileId profile_id = 3;
+	string ingest_input_url = 4;
+	string transcode_output_url = 5;
+	string client_address = 6;
+	int64 stream_id = 7;
+	string stream_address = 8;
+	WorkOrderStatus status = 9;
+	IngestStatus ingest_status = 10;
+}
+
+message JobProfiles {
+    repeated JobProfile job_profiles = 1;
+}

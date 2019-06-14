@@ -1,8 +1,8 @@
 package service
 
 import (
-	notificationv1 "github.com/VideoCoin/cloud-api/notifications/v1"
-	"github.com/VideoCoin/cloud-pkg/mqmux"
+	notificationv1 "github.com/videocoin/cloud-api/notifications/v1"
+	"github.com/videocoin/cloud-pkg/mqmux"
 	"github.com/sirupsen/logrus"
 )
 

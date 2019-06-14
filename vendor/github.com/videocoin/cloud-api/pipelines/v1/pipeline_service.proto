@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package cloud.api.pipelines.v1;
+
+import "pipelines/v1/pipeline.proto";
+import "github.com/videocoin/cloud-api/rpc/health.proto";
+import "github.com/videocoin/cloud-api/profiles/v1/profiles.proto";
+
+import "google/protobuf/empty.proto";
+import "google/api/annotations.proto";
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+
+option go_package = "v1";
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+option (gogoproto.sizer_all) = true;
+option (gogoproto.goproto_registration) = true;
+option (gogoproto.messagename_all) = true;
+
+service PipelineService {
+    rpc Health(google.protobuf.Empty) returns (cloud.api.rpc.HealthStatus) {
+        option (google.api.http) = {
+            get: "/healthz"
+        };
+    }
+
+    rpc Create(CreatePipelineRequest) returns (PipelineProfile) {
+        option (google.api.http) = {
+            post: "/api/v1/pipelines",
+            body: "*"
+        };
+    }
+
+    rpc Delete(PipelineRequest) returns (google.protobuf.Empty) {
+        option (google.api.http) = {
+            delete: "/api/v1/pipelines/{id}",
+        };
+    }
+
+    rpc Get(PipelineRequest) returns (PipelineProfile) {
+        option (google.api.http) = {
+            get: "/api/v1/pipelines/{id}"
+        };
+    }
+
+    rpc List(google.protobuf.Empty) returns (ListResponse) {
+        option (google.api.http) = {
+            get: "/api/v1/pipelines"
+        };
+    }
+
+    rpc Update(UpdatePipelineRequest) returns (PipelineProfile) {
+        option (google.api.http) = {
+            put: "/api/v1/pipelines/{id}",
+            body: "*"
+        };
+    }
+
+    rpc Run(PipelineRequest) returns (PipelineProfile) {
+        option (google.api.http) = {
+            post: "/api/v1/pipelines/{id}/run",
+            body: "*"
+        };
+    }
+
+    rpc Complete(PipelineRequest) returns (PipelineProfile) {
+        option (google.api.http) = {
+            post: "/api/v1/pipelines/{id}/complete",
+            body: "*"
+        };
+    }
+
+    rpc Cancel(PipelineRequest) returns (PipelineProfile) {
+        option (google.api.http) = {
+            post: "/api/v1/pipelines/{id}/cancel",
+            body: "*"
+        };
+    }
+}
+
+message CreatePipelineRequest {
+    string name = 1;
+    cloud.api.profiles.v1.ProfileId profile_id = 2;
+}
+
+message PipelineRequest {
+    string id = 1;
+}
+
+message ListResponse {
+    repeated PipelineProfile items = 1;
+}
+
+message UpdatePipelineRequest {
+    string id = 1;
+    string user_id = 2;
+    string name = 4;
+    string client_address = 5;
+    uint64 stream_id = 6;
+    string stream_address = 7;
+    PipelineStatus status = 8;
+    cloud.api.profiles.v1.ProfileId profile_id = 9;
+}
