@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	notificationv1 "github.com/videocoin/cloud-api/notifications/v1"
-	"github.com/videocoin/cloud-pkg/streamManager"
 	vc "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -17,6 +15,8 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/go-redis/redis"
 	"github.com/sirupsen/logrus"
+	notificationv1 "github.com/videocoin/cloud-api/notifications/v1"
+	"github.com/videocoin/cloud-pkg/streamManager"
 )
 
 func interfaceByName(name string) func() interface{} {
@@ -361,7 +361,12 @@ func (l *listener) sendNotificationEvent(params map[string]string) error {
 }
 
 func (l *listener) setCache(streamID uint64) (string, string, error) {
-	p, err := l.ds.GetPipelineByStreamId(streamID)
+	j, err := l.ds.GetJobByStreamId(streamID)
+	if err != nil {
+		return "", "", err
+	}
+
+	p, err := l.ds.GetPipelineById(j.PipelineId)
 	if err != nil {
 		return "", "", err
 	}
